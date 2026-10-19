@@ -5,6 +5,7 @@ from PyQt5.QtWidgets import QVBoxLayout, QHBoxLayout
 from PyQt5.QtWidgets import QLabel, QPushButton, QComboBox, QLineEdit, QListWidget
 from strategies import *
 import pickle
+import re
 
 
 class  TradingGUI(QWidget):
@@ -129,7 +130,12 @@ class  TradingGUI(QWidget):
             self._connection_result_label.setText("❌ ERROR: Getting Data met with failure.")
             return 
         
-        src_name = f"{self._currecny_edit.text()}_{self._start_t_edit.text()}_{self._stop_t_edit.text()}_{self._time_frame.currentText()}"
+        currency = self._currecny_edit.text().strip()
+        t1 = self._start_t_edit.text().strip()
+        t2 = self._stop_t_edit.text().strip()
+        time_frame = self._time_frame.currentText()
+        
+        src_name = f"{currency}_{t1}_{t2}_{time_frame}"
 
         try:
             with open(f"{src_name}.pkl", "rb") as f:
@@ -141,10 +147,10 @@ class  TradingGUI(QWidget):
             try:
                 text = self._connection_result_label.text() + "\n" + "🔄️ Downloading Data from Binance ..."
                 self._connection_result_label.setText(text)
-                self._src = ConnectBinance(currency=self._currecny_edit.text(),
-                                        start_time=self._start_t_edit.text(),
-                                        stop_time=self._stop_t_edit.text(),
-                                        timeframe=self._time_frame.currentText())
+                self._src = ConnectBinance(currency=currency,
+                                           start_time=t1,
+                                           stop_time=t2,
+                                           timeframe=time_frame)
             except:     
                 text = self._connection_result_label.text() + "\n" + "❌ ERROR: Data was not downloaded. Check your internet connection"
                 self._connection_result_label.setText(text)
@@ -170,16 +176,40 @@ class  TradingGUI(QWidget):
 
     def __check_connect_field(self):
 
-        if not self._currecny_edit.text().strip():
+        currency = self._currecny_edit.text().strip()
+        t1 = self._start_t_edit.text().strip()
+        t2 = self._stop_t_edit.text().strip()
+
+        # currency
+        if not currency:
             QMessageBox.warning(self, "warning", "Currecncy can not be empty")
             return False
-        
-        if not self._start_t_edit.text().strip():
+
+        if not re.search(r"^\D*$", currency):
+            QMessageBox.warning(self, "warning", "Currecncy is not in a valid format")
+            return False
+
+        # start time
+        if not t1:
             QMessageBox.warning(self, "warning", "Start Time can not be empty")
             return False
+
+        time_format = r"^([\d]{4})-([\d]{2})-([\d]{2})$"
+        t1_s = re.search(time_format, t1)
         
-        if not self._stop_t_edit.text().strip():
+        if not t1_s:
+            QMessageBox.warning(self, "warning", "Start Time is not in a valid format")
+            return False
+
+        # stop time
+        if not t2:
             QMessageBox.warning(self, "warning", "Stop Time can not be empty")
+            return False
+
+        t2_s = re.search(time_format, t2)
+        
+        if not t2_s:
+            QMessageBox.warning(self, "warning", "Stop Time is not in a valid format")
             return False
 
         return True
@@ -339,7 +369,7 @@ class  TradingGUI(QWidget):
 
         # Left Vbox
         hbox  = QHBoxLayout()
-        lgroup = QGroupBox("Add Moving Average")
+        lgroup = QGroupBox("Add SMA")
         lform  = QFormLayout()
         lform.setRowWrapPolicy(QFormLayout.WrapAllRows)
 
@@ -401,13 +431,10 @@ class  TradingGUI(QWidget):
         right_vbox.addWidget(rgroup)
         upper_hbox.addLayout(right_vbox)
 
-        master_layout.addLayout(upper_hbox)
+        master_layout.addLayout(upper_hbox, 1)
 
         ###################### Lower Hbox ######################
-        self._mavg_trade_result_label = QLabel("")
-        lower_hbox.addWidget(self._mavg_trade_result_label)
-
-        master_layout.addLayout(lower_hbox)
+        master_layout.addLayout(lower_hbox, 3)
         self.mavg_tab.setLayout(master_layout)
 
     def __add_sma(self):
@@ -424,9 +451,7 @@ class  TradingGUI(QWidget):
                 raise ValueError
             
         except ValueError:
-            QMessageBox.warning(
-                self, "Warning", "SMA window must be a positive integer."
-            )
+            QMessageBox.warning(self, "Warning", "SMA window must be a positive integer.")
             return
 
         candle_type = self._candle_type.currentText()
@@ -440,22 +465,21 @@ class  TradingGUI(QWidget):
 
     def __mavg(self):
 
-        self._mavg_trade_result_label.setText("Trading Started ...")
-
+        if not self.__check_mavg_filed():
+            return 
+        
         if self._src is None:
-            self._mavg_trade_result_label.setText("Trading met with failure! There is no data so check the Binance.")
+            QMessageBox.warning(self, "Warning", "Trading met with failure! There is no data so check the Binance.")
             return
 
         if self._initial_capital is None:
-            self._mavg_trade_result_label.setText("Trading met with failure! Check Settings.")
+            QMessageBox.warning(self, "Warning", "Trading met with failure! Check Settings.")
             return
 
         candle = self._mavg_trade_candle_type.currentText()
-        short_window = int(self._mavg_shorter_sma_edit.text())
-        long_window = int(self._mavg_longer_sma_edit.text())
-        windows = (short_window, long_window)
-
-        print("start trading")
+        shorter_window = int(float(self._mavg_shorter_sma_edit.text().strip()))
+        longer_window = int(float(self._mavg_longer_sma_edit.text().strip()))
+        windows = (shorter_window, longer_window)
 
         mavg_strategy = MovingAverage(self._src)
 
@@ -467,13 +491,14 @@ class  TradingGUI(QWidget):
             "High": []
         }
 
-
         for i in sma_list:
             candle_type, window = i.split("-")
             window = int(window)
             sma_dict[candle_type].append(window)
 
-        mavg_strategy.add_sma(sma_dict)
+        if not mavg_strategy.add_sma(sma_dict):
+            QMessageBox.warning(self, "Warning", "Trading met with failure! there is no SMA Window.")
+            return
 
         s = mavg_strategy.trade(price=candle,
                                 windows=windows,
@@ -483,14 +508,45 @@ class  TradingGUI(QWidget):
                                 sl=self._sl,
                                 commission_rate=self._commission_rate)
         
-        if s is None:
-            self._mavg_trade_result_label.setText("Trading met with failure.")
+        if not s:
+            QMessageBox.warning(self, "Warning", "Trading met with failure.")
             return
 
-        self._mavg_trade_result_label.setText("Trading successfully finished.")
+        QMessageBox.information(self, "Warning", "Trading successfully finished.")
         mavg_strategy.report()
 
+    def __check_mavg_filed(self):
 
+        window_format = r"^\d+$"
+        shorter_sma = self._mavg_shorter_sma_edit.text().strip()
+        longer_sma = self._mavg_longer_sma_edit.text().strip()
+
+        # shorter sma window
+        if not shorter_sma:
+            QMessageBox.warning(self, "Warning", "Shorter SMA Window can not be empty")
+            return False
+
+        if not re.search(window_format, shorter_sma):
+            QMessageBox.warning(self, "Warning", "Shorter SMA Window must be a positive interger number")
+            return False
+
+        # longer sma window
+        if not shorter_sma:
+            QMessageBox.warning(self, "Warning", "Longer SMA Window can not be empty")
+            return False
+
+        if not re.search(window_format, longer_sma):
+            QMessageBox.warning(self, "Warning", "Longer SMA Window must be a positive interger number")
+            return False
+
+        if int(shorter_sma) >= int(longer_sma):
+            QMessageBox.warning(self, "Warning", "Longer SMA Window must be greater than Shorter SMA Window")
+            return False
+
+        return True
+        
+        
+        
 def main():
     app = QApplication(sys.argv)
     window = TradingGUI()

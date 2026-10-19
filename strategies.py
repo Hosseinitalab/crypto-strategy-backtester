@@ -415,22 +415,24 @@ class MovingAverage(Strategy):
     def add_sma(self, sma_list:dict):
 
         if not isinstance(sma_list, dict):
-            return
+            return False
 
         if not self._ready:
-            return
+            return False
+
+        added = False
 
         for price, window_list in sma_list.items():
             if price not in self._PRICE_TYPE:
                 print("❌ ERROR: Unsupported price type: Something")
-                return
+                return False
             
             for window in window_list:
                 try:
                     w = int(window)
                     if w <= 0:
                         print("❌ ERROR: Window must be greater than Zero")
-                        return
+                        return False
                     
                     if f"SMA-{price}-{w}" in self._data.columns:
                         continue
@@ -438,9 +440,12 @@ class MovingAverage(Strategy):
                     self._data[f"SMA-{price}-{w}"] = MovingAverage.__calculate_sma(self._data[price], w)
                     self._sma[price].append(w)
                     self._sma[price].sort()
+                    added = True
 
                 except (TypeError, ValueError):
                     continue
+
+        return added
 
     def _get_entry_signal(self, i):
 
