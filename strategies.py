@@ -401,14 +401,16 @@ class MovingAverage(Strategy):
         print("✨ Start Trading ....")
 
         if not self.check_inputs(initial_capital, margin_portion, tp, sl, commission_rate):
-            return
+            return False
         
         if not self.__init_backtest(initial_capital, price, windows, tp, sl, commission_rate):
-            return
+            return False
 
         self._run_backtest(margin_portion, tp, sl, commission_rate)
         
         print("✅ Trading Finished Successfully.")
+
+        return True
 
     def add_sma(self, sma_list:dict):
 
@@ -578,14 +580,16 @@ class BollingerBand(Strategy):
         print("✨ Start Trading ....")
         
         if not self.check_inputs(initial_capital, margin_portion, tp, sl, commission_rate):
-            return
+            return False
 
         if not self.__init_backtest(initial_capital, price, window, num_std_dev, tp, sl, commission_rate):
-            return
+            return False
 
         self._run_backtest(margin_portion, tp, sl, commission_rate)
 
         print("✅ Trading Finished Successfully.")
+
+        return True
 
     def add_bands(self, price:str="Close", window:int=20, num_std_dev:float=2):
 
@@ -721,14 +725,16 @@ class RSI(Strategy):
         print("✨ Start Trading ....")
         
         if not self.check_inputs(initial_capital, margin_portion, tp, sl, commission_rate):
-            return
+            return False
 
         if not self.__init_backtest(initial_capital, price, window, overbought_level, oversold_level, tp, sl, commission_rate):
-            return
+            return False
 
         self._run_backtest(margin_portion, tp, sl, commission_rate)
         
         print("✅ Trading Finished Successfully.")
+
+        return True
 
     def add_rsi(self, price:str="Close", window:int=14):
 
@@ -859,14 +865,16 @@ class DonchianChannel(Strategy):
         print("✨ Start Trading ....")
         
         if not self.check_inputs(initial_capital, margin_portion, tp, sl, commission_rate):
-            return
+            return False
 
         if not self.__init_backtest(initial_capital, price, window, tp, sl, commission_rate):
-            return
+            return False
 
         self._run_backtest(margin_portion, tp, sl, commission_rate)
         
         print("✅ Trading Finished Successfully.")
+
+        return True
 
     def add_channels(self, window:int=14):
 
@@ -996,14 +1004,16 @@ class MACD(Strategy):
         print("✨ Start Trading ....")
         
         if not self.check_inputs(initial_capital, margin_portion, tp, sl, commission_rate):
-            return
+            return False
 
         if not self.__init_backtest(initial_capital, price, slow_ema, fast_ema, signal_ema, tp, sl, commission_rate):
-            return
+            return False
 
         self._run_backtest(margin_portion, tp, sl, commission_rate)
         
         print("✅ Trading Finished Successfully.")
+
+        return True
 
     def _get_entry_signal(self, i):
 
@@ -1120,14 +1130,16 @@ class RsiMacdEma(Strategy):
         print("✨ Start Trading ....")
         
         if not self.check_inputs(initial_capital, margin_portion, tp, sl, commission_rate):
-            return
+            return False
 
         if not self.__init_backtest(initial_capital, price, rsi_window, rsi_threshold, ema_window, slow_ema, fast_ema, signal_ema, tp, sl, commission_rate):
-            return
+            return False
 
         self._run_backtest(margin_portion, tp, sl, commission_rate)
         
         print("✅ Trading Finished Successfully.")
+
+        return True
 
     def _get_entry_signal(self, i):
 

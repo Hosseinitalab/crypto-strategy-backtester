@@ -355,8 +355,8 @@ class  TradingGUI(QWidget):
         lform.addRow(window_label, self._mavg_window_edit)
         lform.addRow(candle_label, self._candle_type)
 
-        self.sma_list = QListWidget()
-        hbox.addWidget(self.sma_list)
+        self._mavg_sma_list = QListWidget()
+        hbox.addWidget(self._mavg_sma_list)
 
         self._mavg_add_button = QPushButton("Add SMA")
         self._mavg_add_button.clicked.connect(self.__add_sma)
@@ -430,7 +430,13 @@ class  TradingGUI(QWidget):
             return
 
         candle_type = self._candle_type.currentText()
-        self.sma_list.addItem(f"{candle_type}-{window}")
+        item = f"{candle_type}-{window}"
+
+        for i in range(self._mavg_sma_list.count()):
+            if self._mavg_sma_list.item(i).text() == item:
+                return
+
+        self._mavg_sma_list.addItem(item)
 
     def __mavg(self):
 
@@ -445,14 +451,29 @@ class  TradingGUI(QWidget):
             return
 
         candle = self._mavg_trade_candle_type.currentText()
-        short_window = self._mavg_shorter_sma_edit.text()
-        long_window = self._mavg_longer_sma_edit.text()
+        short_window = int(self._mavg_shorter_sma_edit.text())
+        long_window = int(self._mavg_longer_sma_edit.text())
         windows = (short_window, long_window)
 
         print("start trading")
 
         mavg_strategy = MovingAverage(self._src)
-        mavg_strategy.add_sma(windows)
+
+        sma_list = [self._mavg_sma_list.item(i).text() for i in range(self._mavg_sma_list.count())]
+        sma_dict = {
+            "Close": [],
+            "Open": [],
+            "Low": [],
+            "High": []
+        }
+
+
+        for i in sma_list:
+            candle_type, window = i.split("-")
+            window = int(window)
+            sma_dict[candle_type].append(window)
+
+        mavg_strategy.add_sma(sma_dict)
 
         s = mavg_strategy.trade(price=candle,
                                 windows=windows,
@@ -461,12 +482,14 @@ class  TradingGUI(QWidget):
                                 tp=self._tp,
                                 sl=self._sl,
                                 commission_rate=self._commission_rate)
+        
         if s is None:
             self._mavg_trade_result_label.setText("Trading met with failure.")
             return
 
         self._mavg_trade_result_label.setText("Trading successfully finished.")
-        s.report()
+        mavg_strategy.report()
+
 
 def main():
     app = QApplication(sys.argv)
