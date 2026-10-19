@@ -1,8 +1,10 @@
 import sys
+from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg
 from PyQt5.QtWidgets import QApplication, QWidget
 from PyQt5.QtWidgets import QGroupBox, QFormLayout, QTabWidget, QMessageBox
 from PyQt5.QtWidgets import QVBoxLayout, QHBoxLayout
 from PyQt5.QtWidgets import QLabel, QPushButton, QComboBox, QLineEdit, QListWidget
+from matplotlib.figure import Figure
 from strategies import *
 import pickle
 import re
@@ -360,7 +362,7 @@ class  TradingGUI(QWidget):
         master_layout = QVBoxLayout()
 
         upper_hbox = QHBoxLayout()
-        lower_hbox = QHBoxLayout()
+        self._mavg_report_area = QHBoxLayout()
 
         right_vbox = QVBoxLayout()
         left_vbox  = QVBoxLayout()
@@ -434,7 +436,11 @@ class  TradingGUI(QWidget):
         master_layout.addLayout(upper_hbox, 1)
 
         ###################### Lower Hbox ######################
-        master_layout.addLayout(lower_hbox, 3)
+        self._mavg_report_graph = QVBoxLayout()
+        self._mavg_report_detail = QVBoxLayout()
+        self._mavg_report_area.addLayout(self._mavg_report_graph, 4)
+        self._mavg_report_area.addLayout(self._mavg_report_detail, 1)
+        master_layout.addLayout(self._mavg_report_area, 3)
         self.mavg_tab.setLayout(master_layout)
 
     def __add_sma(self):
@@ -443,29 +449,40 @@ class  TradingGUI(QWidget):
 
         if not window:
             QMessageBox.warning(self, "Warning", "SMA window cannot be empty.")
-            return
+            # clear previous reports
+            self.__mavg_clear_report()
+            return False
 
         try:
             window = int(window)
             if window <= 0:
+                # clear previous reports
+                self.__mavg_clear_report()
                 raise ValueError
             
         except ValueError:
             QMessageBox.warning(self, "Warning", "SMA window must be a positive integer.")
-            return
+            # clear previous reports
+            self.__mavg_clear_report()
+            return False
 
         candle_type = self._candle_type.currentText()
         item = f"{candle_type}-{window}"
 
         for i in range(self._mavg_sma_list.count()):
             if self._mavg_sma_list.item(i).text() == item:
-                return
+                # clear previous reports
+                self.__mavg_clear_report()
+                return False
 
         self._mavg_sma_list.addItem(item)
 
     def __mavg(self):
 
-        if not self.__check_mavg_filed():
+        # clear previous reports
+        self.__mavg_clear_report()
+
+        if not self.__check_mavg_field():
             return 
         
         if self._src is None:
@@ -481,7 +498,7 @@ class  TradingGUI(QWidget):
         longer_window = int(float(self._mavg_longer_sma_edit.text().strip()))
         windows = (shorter_window, longer_window)
 
-        mavg_strategy = MovingAverage(self._src)
+        strategy = MovingAverage(self._src)
 
         sma_list = [self._mavg_sma_list.item(i).text() for i in range(self._mavg_sma_list.count())]
         sma_dict = {
@@ -496,11 +513,11 @@ class  TradingGUI(QWidget):
             window = int(window)
             sma_dict[candle_type].append(window)
 
-        if not mavg_strategy.add_sma(sma_dict):
+        if not strategy.add_sma(sma_dict):
             QMessageBox.warning(self, "Warning", "Trading met with failure! there is no SMA Window.")
             return
 
-        s = mavg_strategy.trade(price=candle,
+        s = strategy.trade(price=candle,
                                 windows=windows,
                                 margin_portion=self._margin,
                                 initial_capital=self._initial_capital,
@@ -513,9 +530,38 @@ class  TradingGUI(QWidget):
             return
 
         QMessageBox.information(self, "Warning", "Trading successfully finished.")
-        mavg_strategy.report()
+        canvas = FigureCanvasQTAgg(strategy._report_graph())
 
-    def __check_mavg_filed(self):
+        self._mavg_report_graph.addWidget(canvas)
+
+        group = QGroupBox(f"Final Result")
+        form  = QFormLayout()
+
+        self._trade_initial_capital  = QLabel("Initial Capital")
+        self._trade_final_capital    = QLabel("Final Capital")
+        self._trade_profit_loss      = QLabel("Profit-Loss")
+        self._trade_total_return     = QLabel("Total Return")
+        self._trade_total_trades     = QLabel("Total Trades")
+        self._trade_win_rate         = QLabel("Win-Rate")
+
+        self._trade_initial_capital_v  = QLabel(f"{strategy._statistics['initial-capital']:.2f} $")
+        self._trade_final_capital_v    = QLabel(f"{strategy._statistics['capital']:.2f} $")
+        self._trade_profit_loss_v      = QLabel(f"{strategy._statistics['capital'] - strategy._statistics['initial-capital']:.2f} $")
+        self._trade_total_return_v     = QLabel(f"{strategy._statistics['total-return']:.2f} %")
+        self._trade_total_trades_v     = QLabel(f"{strategy._statistics['total-trade']} (Winning: {strategy._statistics['winning-trade']} | Losing: {strategy._statistics['losing-trade']})")
+        self._trade_win_rate_v         = QLabel(f"{strategy._statistics['win-rate']:.2f} %")
+
+        form.addRow(self._trade_initial_capital, self._trade_initial_capital_v)
+        form.addRow(self._trade_final_capital, self._trade_final_capital_v)
+        form.addRow(self._trade_profit_loss, self._trade_profit_loss_v)
+        form.addRow(self._trade_total_return, self._trade_total_return_v)
+        form.addRow(self._trade_total_trades, self._trade_total_trades_v)
+        form.addRow(self._trade_win_rate, self._trade_win_rate_v)
+
+        group.setLayout(form)
+        self._mavg_report_detail.addWidget(group)
+
+    def __check_mavg_field(self):
 
         window_format = r"^\d+$"
         shorter_sma = self._mavg_shorter_sma_edit.text().strip()
@@ -531,7 +577,7 @@ class  TradingGUI(QWidget):
             return False
 
         # longer sma window
-        if not shorter_sma:
+        if not longer_sma:
             QMessageBox.warning(self, "Warning", "Longer SMA Window can not be empty")
             return False
 
@@ -544,7 +590,23 @@ class  TradingGUI(QWidget):
             return False
 
         return True
-        
+
+    def __mavg_clear_report(self):
+        # Clear previous graph widgets
+        while self._mavg_report_graph.count():
+            item = self._mavg_report_graph.takeAt(0)
+            widget = item.widget()
+
+            if widget is not None:
+                widget.deleteLater()
+
+        # Clear previous report-detail widgets
+        while self._mavg_report_detail.count():
+            item = self._mavg_report_detail.takeAt(0)
+            widget = item.widget()
+
+            if widget is not None:
+                widget.deleteLater()
         
         
 def main():

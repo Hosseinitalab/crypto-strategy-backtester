@@ -148,31 +148,43 @@ class Strategy:
         self._price = None
 
     def report(self):
+        self._report_details()
+        self._report_graph().show()
+
+    def _report_graph(self):
         if not self._ready:
             print("❌ ERROR: Data is not ready")
-            return
-            
-        print(f"===================  Final Backtest Result of {self._STRATEGY_NAME} Strategy ===================")
-        print(f"❇️ Initial Capital: {self._statistics['initial-capital']:.2f} USD")
-        print(f"❇️ Final Capital: {self._statistics['capital']:.2f} USD")
-        print(f"❇️ Profit-Loss: {self._statistics['capital'] - self._statistics['initial-capital']:.2f} USD")
-        print(f"❇️ Total Return: {self._statistics['total-return']:.2f} %")
-        print(f"❇️ Total Trades: {self._statistics['total-trade']} (Winning: {self._statistics['winning-trade']} | Losing: {self._statistics['losing-trade']})")
-        print(f"❇️ Win-Rate: {self._statistics['win-rate']:.2f} %")
+            return False
     
         # plot capital Trend
-        plt.figure(figsize=(14, 7))
+        fig = plt.figure(figsize=(14, 7))
         plt.plot(self._trade_df.index, self._trade_df["Equity"], label="Equity Curve", color="green", linewidth=2)
         plt.axhline(y=self._statistics["initial-capital"], color="red", linestyle="--", label="Initial Capital")
     
         plt.title(f"Equity Curve of {self._STRATEGY_NAME} Strategy", fontsize="14")
         plt.xlabel("Date", fontsize=12)
-        plt.ylabel("Equity (USD)", fontsize=12)
+        plt.ylabel("Equity ($)", fontsize=12)
         plt.legend(loc="best")
         plt.grid(True, alpha=0.5)
     
-        plt.tight_layout()
-        plt.show()
+        fig.tight_layout()
+
+        return fig
+
+    def _report_details(self):
+        if not self._ready:
+            print("❌ ERROR: Data is not ready")
+            return False
+            
+        print(f"===================  Final Backtest Result of {self._STRATEGY_NAME} Strategy ===================")
+        print(f"❇️ Initial Capital: {self._statistics['initial-capital']:.2f} $")
+        print(f"❇️ Final Capital: {self._statistics['capital']:.2f} $")
+        print(f"❇️ Profit-Loss: {self._statistics['capital'] - self._statistics['initial-capital']:.2f} $")
+        print(f"❇️ Total Return: {self._statistics['total-return']:.2f} %")
+        print(f"❇️ Total Trades: {self._statistics['total-trade']} (Winning: {self._statistics['winning-trade']} | Losing: {self._statistics['losing-trade']})")
+        print(f"❇️ Win-Rate: {self._statistics['win-rate']:.2f} %")
+
+        return True
 
     def _run_backtest(self, margin_portion: float, tp: float, sl: float, commission_rate: float):
         if len(self._trade_df) < 2:
