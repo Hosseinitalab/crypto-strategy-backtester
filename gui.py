@@ -10,10 +10,697 @@ import pickle
 import re
 
 
+class StrategyWindow:
+
+    _CANDLE_TYPE = ["Open", "Close", "High", "Low"]
+
+    def __init__(self):
+
+        self._tab = QWidget()
+        self._report_area = None
+        self._report_graph = None
+        self._report_detail = None
+
+    def _clear_report(self):
+
+        if self._report_area is None:
+            return
+
+        # Clear previous graph widgets
+        while self._report_graph.count():
+            item = self._report_graph.takeAt(0)
+            widget = item.widget()
+
+            if widget is not None:
+                widget.deleteLater()
+
+        # Clear previous report-detail widgets
+        while self._report_detail.count():
+            item = self._report_detail.takeAt(0)
+            widget = item.widget()
+
+            if widget is not None:
+                widget.deleteLater()
+
+    def _create_metric_card(self, title, value, accent="#3478E5",
+                            subtitle=None, prominent=False):
+        """Create a styled card for one backtest metric."""
+
+        card = QFrame()
+        card.setObjectName("metricCard")
+        card.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
+
+        layout = QVBoxLayout(card)
+        layout.setContentsMargins(12, 12, 12, 12)
+        layout.setSpacing(5)
+
+        title_label = QLabel(title)
+        title_label.setStyleSheet("""
+            color: #64748B;
+            font-size: 11px;
+            font-weight: 600;
+            border: none;
+            background: transparent;
+        """)
+
+        value_label = QLabel(str(value))
+        value_label.setWordWrap(True)
+        value_label.setStyleSheet(f"""
+            color: {accent};
+            font-size: {"20px" if prominent else "15px"};
+            font-weight: bold;
+            border: none;
+            background: transparent;
+        """)
+
+        layout.addWidget(title_label)
+        layout.addWidget(value_label)
+
+        if subtitle is not None:
+            subtitle_label = QLabel(subtitle)
+            subtitle_label.setWordWrap(True)
+            subtitle_label.setStyleSheet("""
+                color: #64748B;
+                font-size: 10px;
+                border: none;
+                background: transparent;
+            """)
+            layout.addWidget(subtitle_label)
+
+        card.setStyleSheet("""
+            QFrame#metricCard {
+                background-color: #FFFFFF;
+                border: 1px solid #E2E8F0;
+                border-radius: 10px;
+            }
+        """)
+
+        return card
+
+    def _create_final_results_panel(self, statistics):
+        """Build the final backtest results dashboard."""
+
+        panel = QFrame()
+        panel.setObjectName("resultsPanel")
+
+        panel.setStyleSheet("""
+            QFrame#resultsPanel {
+                background-color: #F4F7FB;
+                border: 1px solid #DCE5F0;
+                border-radius: 12px;
+            }
+        """)
+
+        main_layout = QVBoxLayout(panel)
+        main_layout.setContentsMargins(10, 10, 10, 10)
+        main_layout.setSpacing(10)
+
+        # ---------- Header ----------
+        header = QFrame()
+        header.setObjectName("resultsHeader")
+        header.setStyleSheet("""
+            QFrame#resultsHeader {
+                background-color: #203E68;
+                border-radius: 8px;
+            }
+        """)
+
+        header_layout = QHBoxLayout(header)
+        header_layout.setContentsMargins(12, 12, 12, 12)
+
+        title = QLabel("🏆  Final Results")
+        title.setStyleSheet("""
+            color: white;
+            font-size: 16px;
+            font-weight: bold;
+            border: none;
+            background: transparent;
+        """)
+
+        header_layout.addWidget(title)
+        main_layout.addWidget(header)
+
+        # ---------- Calculate displayed values ----------
+        initial = statistics["initial-capital"]
+        final = statistics["capital"]
+        profit = final - initial
+        total_return = statistics["total-return"]
+        total_trades = statistics["total-trade"]
+        winning = statistics["winning-trade"]
+        losing = statistics["losing-trade"]
+        win_rate = statistics["win-rate"]
+
+        profit_color = "#16834A" if profit >= 0 else "#D12F45"
+        profit_sign = "+" if profit > 0 else ""
+
+        # ---------- Main metric cards ----------
+        grid = QGridLayout()
+        grid.setSpacing(8)
+
+        cards = [
+            self._create_metric_card(
+                "FINAL CAPITAL",
+                f"${final:,.2f}",
+                accent="#203E68",
+                subtitle=f"{total_return:+.2f}%",
+                prominent=True
+            ),
+            self._create_metric_card(
+                "PROFIT / LOSS",
+                f"{profit_sign}${abs(profit):,.2f}"
+                if profit >= 0 else f"-${abs(profit):,.2f}",
+                accent=profit_color,
+                subtitle="Net result",
+                prominent=True
+            ),
+            self._create_metric_card(
+                "INITIAL CAPITAL",
+                f"${initial:,.2f}",
+                accent="#168D8D"
+            ),
+            self._create_metric_card(
+                "TOTAL TRADES",
+                str(total_trades),
+                accent="#3478E5",
+                subtitle=f"{winning} wins · {losing} losses"
+            ),
+            self._create_metric_card(
+                "TOTAL RETURN",
+                f"{total_return:.2f}%",
+                accent="#168D8D"
+            ),
+            self._create_metric_card(
+                "WIN RATE",
+                f"{win_rate:.2f}%",
+                accent="#3478E5"
+            ),
+        ]
+
+        for index, card in enumerate(cards):
+            row = index // 2
+            column = index % 2
+            grid.addWidget(card, row, column)
+
+        main_layout.addLayout(grid)
+        main_layout.addStretch()
+
+        return panel
+
+  
+class MovingAverageWindow(StrategyWindow):
+
+    def __init__(self, trading_gui):
+
+        super().__init__()
+        self._trading_gui = trading_gui
+        self.__init_widgets()
+        self.__setup()
+
+    def __init_widgets(self):
+
+        # Edit Widgets
+        self._window_edit = None
+        self._shorter_sma_edit = None
+        self._longer_sma_edit = None
+
+        # ComboBox Widget
+        self._add_sma_candle_combo = None
+        self._trade_candle_combo = None
+
+        
+        # Button Widget
+        self._add_sma_button = None
+        self._trade_button = None
+
+        # List Widget
+        self._sma_list = None
+
+    def __setup(self):
+
+        master_layout     = QVBoxLayout()
+        right_vbox        = QVBoxLayout()
+        left_vbox         = QVBoxLayout()
+        upper_hbox        = QHBoxLayout()
+        self._report_area = QHBoxLayout()
+
+        ###################### Upper Hbox ######################
+
+        # Left Vbox
+        hbox   = QHBoxLayout()
+        lgroup = QGroupBox("Add SMA")
+        lform  = QFormLayout()
+        lform.setRowWrapPolicy(QFormLayout.WrapAllRows)
+
+        CANDLE_TYPES = ("Close", "Open", "High", "Low")
+        window_label    = QLabel("Window")
+        candle_label    = QLabel("Candle Type")
+
+        self._window_edit   = QLineEdit()
+        
+        self._add_sma_candle_combo   = QComboBox()
+        self._add_sma_candle_combo.addItems(CANDLE_TYPES)
+
+        lform.addRow(window_label, self._window_edit)
+        lform.addRow(candle_label, self._add_sma_candle_combo)
+
+        self._sma_list = QListWidget()
+        hbox.addWidget(self._sma_list)
+
+        self._add_sma_button = QPushButton("Add SMA")
+        self._add_sma_button.clicked.connect(self.__add_sma)
+        hbox.addWidget(self._add_sma_button)
+
+        lform.addRow(hbox)
+        lgroup.setLayout(lform)
+        left_vbox.addWidget(lgroup)
+        upper_hbox.addLayout(left_vbox)
+
+        # Right Vbox
+        hbox2  = QHBoxLayout()
+        rgroup = QGroupBox("Strategy Setup")
+        rform  = QFormLayout()
+        rform.setRowWrapPolicy(QFormLayout.WrapAllRows)
+
+        shorter_window_label    = QLabel("Shorter SMA Window")
+        longer_window_label     = QLabel("Longer SMA Window")
+        trade_candle_label      = QLabel("Candle Type")
+
+        self._shorter_sma_edit = QLineEdit()
+        self._longer_sma_edit  = QLineEdit()
+
+        self._shorter_sma_edit.setPlaceholderText("Enter Shorter SMA Window")
+        self._longer_sma_edit.setPlaceholderText("Enter Longer SMA Window")
+
+        self._trade_candle_combo = QComboBox()
+        self._trade_candle_combo.addItems(self._CANDLE_TYPE)
+        self._trade_candle_combo.setCurrentText("Close")
+
+        rform.addRow(shorter_window_label, self._shorter_sma_edit)
+        rform.addRow(longer_window_label, self._longer_sma_edit)
+        rform.addRow(trade_candle_label, self._trade_candle_combo)
+
+        hbox2.addStretch()
+        self._trade_button = QPushButton("Start Trading")
+        hbox2.addWidget(self._trade_button)
+        self._trade_button.clicked.connect(self.__trade)
+        rform.addRow(hbox2)
+
+        rgroup.setLayout(rform)
+        right_vbox.addWidget(rgroup)
+        upper_hbox.addLayout(right_vbox)
+
+        master_layout.addLayout(upper_hbox, 1)
+
+        ###################### Lower Hbox ######################
+        self._report_graph = QVBoxLayout()
+        self._report_detail = QVBoxLayout()
+        self._report_area.addLayout(self._report_graph, 3)
+        self._report_area.addLayout(self._report_detail, 1)
+        master_layout.addLayout(self._report_area, 3)
+        self._tab.setLayout(master_layout)
+
+    def __add_sma(self):
+
+        window = self._window_edit.text().strip()
+        self._window_edit.setText(window)
+
+        if not window:
+            QMessageBox.warning(self._tab, "Warning", "SMA window cannot be empty.")
+            # clear previous reports
+            self._clear_report()
+            return False
+
+        try:
+            window = int(window)
+            if window <= 0:
+                # clear previous reports
+                self._clear_report()
+                raise ValueError
+            
+        except ValueError:
+            QMessageBox.warning(self._tab, "Warning", "SMA window must be a positive integer.")
+            # clear previous reports
+            self._clear_report()
+            return False
+
+        candle_type = self._add_sma_candle_combo.currentText()
+        item = f"{candle_type}-{window}"
+
+        for i in range(self._sma_list.count()):
+            if self._sma_list.item(i).text() == item:
+                # clear previous reports
+                self._clear_report()
+                return False
+
+        self._sma_list.addItem(item)
+
+    def __trade(self):
+
+        # clear previous reports
+        self._clear_report()
+
+        if not self.__check_fields():
+            return 
+        
+        if self._trading_gui._src is None:
+            QMessageBox.warning(self._tab, "Warning", "Trading met with failure! There is no data so check the Binance.")
+            return
+
+        if self._trading_gui._initial_capital is None:
+            QMessageBox.warning(self._tab, "Warning", "Trading met with failure! Check Settings.")
+            return
+
+        candle = self._trade_candle_combo.currentText()
+        shorter_window = int(float(self._shorter_sma_edit.text().strip()))
+        longer_window = int(float(self._longer_sma_edit.text().strip()))
+        windows = (shorter_window, longer_window)
+
+        strategy = MovingAverage(self._trading_gui._src)
+
+        sma_list = [self._sma_list.item(i).text() for i in range(self._sma_list.count())]
+        sma_dict = {
+            "Close": [],
+            "Open":  [],
+            "Low":   [],
+            "High":  []
+        }
+
+        for i in sma_list:
+            candle_type, window = i.split("-")
+            window = int(window)
+            sma_dict[candle_type].append(window)
+
+        if not strategy.add_sma(sma_dict):
+            QMessageBox.warning(self._tab, "Warning", "Trading met with failure! there is no SMA Window.")
+            return
+
+        s = strategy.trade(price=candle,
+                           windows=windows,
+                           margin_portion=self._trading_gui._margin,
+                           initial_capital=self._trading_gui._initial_capital,
+                           tp=self._trading_gui._tp,
+                           sl=self._trading_gui._sl,
+                           commission_rate=self._trading_gui._commission_rate)
+        
+        if not s:
+            QMessageBox.warning(self._tab, "Warning", "Trading met with failure.")
+            return
+
+        QMessageBox.information(self._tab, "Warning", "Trading successfully finished.")
+        canvas = FigureCanvasQTAgg(strategy._report_graph())
+
+        self._report_graph.addWidget(canvas)
+
+        # Display the final results dashboard
+        results_panel = self._create_final_results_panel(strategy._statistics)
+        self._report_detail.addWidget(results_panel)
+
+    def __check_fields(self):
+
+        window_format = r"^\d+$"
+        shorter_sma = self._shorter_sma_edit.text().strip()
+        longer_sma = self._longer_sma_edit.text().strip()
+
+        # shorter sma window
+        if not shorter_sma:
+            QMessageBox.warning(self._tab, "Warning", "Shorter SMA Window can not be empty")
+            return False
+
+        if not re.search(window_format, shorter_sma):
+            QMessageBox.warning(self._tab, "Warning", "Shorter SMA Window must be a positive interger number")
+            return False
+
+        # longer sma window
+        if not longer_sma:
+            QMessageBox.warning(self._tab, "Warning", "Longer SMA Window can not be empty")
+            return False
+
+        if not re.search(window_format, longer_sma):
+            QMessageBox.warning(self._tab, "Warning", "Longer SMA Window must be a positive interger number")
+            return False
+
+        if int(shorter_sma) >= int(longer_sma):
+            QMessageBox.warning(self._tab, "Warning", "Longer SMA Window must be greater than Shorter SMA Window")
+            return False
+
+        return True
+
+
+class RSIWindow(StrategyWindow):
+
+    def __init__(self, trading_gui):
+
+        super().__init__()
+        self._trading_gui = trading_gui
+        self.__init_widgets()
+        self.__setup()
+
+    def __init_widgets(self):
+
+        # Edit Widgets
+        self._sma_edit = None
+        self._window_edit = None
+        self._overbought_edit = None
+        self._oversold_edit = None
+
+        # ComboBox Widget
+        self._add_sma_candle_combo = None
+        self._trade_candle_combo = None
+
+        # Button Widget
+        self._add_sma_button = None
+        self._trade_button = None
+
+        # List Widget
+        self._sma_list = None
+
+    def __setup(self):
+
+        master_layout     = QVBoxLayout()
+        right_vbox        = QVBoxLayout()
+        left_vbox         = QVBoxLayout()
+        upper_hbox        = QHBoxLayout()
+        self._report_area = QHBoxLayout()
+
+        ###################### Upper Hbox ######################
+
+        # Left Vbox
+        hbox   = QHBoxLayout()
+        lgroup = QGroupBox("Add SMA")
+        lform  = QFormLayout()
+        lform.setRowWrapPolicy(QFormLayout.WrapAllRows)
+
+        CANDLE_TYPES = ("Close", "Open", "High", "Low")
+        window_label    = QLabel("Window")
+        candle_label    = QLabel("Candle Type")
+
+        self._window_edit   = QLineEdit()
+        
+        self._add_sma_candle_combo   = QComboBox()
+        self._add_sma_candle_combo.addItems(CANDLE_TYPES)
+
+        lform.addRow(window_label, self._window_edit)
+        lform.addRow(candle_label, self._add_sma_candle_combo)
+
+        self._sma_list = QListWidget()
+        hbox.addWidget(self._sma_list)
+
+        self._add_sma_button = QPushButton("Add SMA")
+        self._add_sma_button.clicked.connect(self.__add_sma)
+        hbox.addWidget(self._add_sma_button)
+
+        lform.addRow(hbox)
+        lgroup.setLayout(lform)
+        left_vbox.addWidget(lgroup)
+        upper_hbox.addLayout(left_vbox)
+
+        # Right Vbox
+        hbox2  = QHBoxLayout()
+        rgroup = QGroupBox("Strategy Setup")
+        rform  = QFormLayout()
+        rform.setRowWrapPolicy(QFormLayout.WrapAllRows)
+        overbought_label     = QLabel("Overbought Level")
+        oversold_label       = QLabel("Oversold Level")
+        sma_window_label     = QLabel("SMA Window")
+        trade_candle_label   = QLabel("Candle Type")
+
+        self._overbought_edit    = QLineEdit("70")
+        self._oversold_edit      = QLineEdit("30")
+        self._sma_edit       = QLineEdit("14")
+
+        self._overbought_edit.setPlaceholderText("Enter Overbought Level")
+        self._oversold_edit.setPlaceholderText("Enter Oversold Level")
+        self._sma_edit.setPlaceholderText("Enter SMA Window")
+
+        self._trade_candle_combo = QComboBox()
+        self._trade_candle_combo.addItems(self._CANDLE_TYPE)
+        self._trade_candle_combo.setCurrentText("Close")
+
+        rform.addRow(overbought_label, self._overbought_edit)
+        rform.addRow(oversold_label, self._oversold_edit)
+        rform.addRow(sma_window_label, self._sma_edit)
+        rform.addRow(trade_candle_label, self._trade_candle_combo)
+
+        hbox2.addStretch()
+        self._trade_button = QPushButton("Start Trading")
+        hbox2.addWidget(self._trade_button)
+        self._trade_button.clicked.connect(self.__trade)
+        rform.addRow(hbox2)
+
+        rgroup.setLayout(rform)
+        right_vbox.addWidget(rgroup)
+        upper_hbox.addLayout(right_vbox)
+
+        master_layout.addLayout(upper_hbox, 1)
+
+        ###################### Lower Hbox ######################
+        self._report_graph = QVBoxLayout()
+        self._report_detail = QVBoxLayout()
+        self._report_area.addLayout(self._report_graph, 3)
+        self._report_area.addLayout(self._report_detail, 1)
+        master_layout.addLayout(self._report_area, 3)
+        self._tab.setLayout(master_layout)
+
+    def __add_sma(self):
+
+        window = self._window_edit.text().strip()
+        self._window_edit.setText(window)
+
+        if not window:
+            QMessageBox.warning(self._tab, "Warning", "SMA window cannot be empty.")
+            # clear previous reports
+            self._clear_report()
+            return False
+
+        try:
+            window = int(window)
+            if window <= 0:
+                # clear previous reports
+                self._clear_report()
+                raise ValueError
+            
+        except ValueError:
+            QMessageBox.warning(self._tab, "Warning", "SMA window must be a positive integer.")
+            # clear previous reports
+            self._clear_report()
+            return False
+
+        candle_type = self._add_sma_candle_combo.currentText()
+        item = f"{candle_type}-{window}"
+
+        for i in range(self._sma_list.count()):
+            if self._sma_list.item(i).text() == item:
+                # clear previous reports
+                self._clear_report()
+                return False
+
+        self._sma_list.addItem(item)
+
+    def __trade(self):
+
+        # clear previous reports
+        self._clear_report()
+
+        if not self.__check_fields():
+            return 
+        
+        if self._trading_gui._src is None:
+            QMessageBox.warning(self._tab, "Warning", "Trading met with failure! There is no data so check the Binance.")
+            return
+
+        if self._trading_gui._initial_capital is None:
+            QMessageBox.warning(self._tab, "Warning", "Trading met with failure! Check Settings.")
+            return
+
+        overbought = float(self._overbought_edit.text())
+        oversold   = float(self._oversold_edit.text())
+        window     = int(self._sma_edit.text())
+        candle     = self._trade_candle_combo.currentText()
+
+        strategy = RSI(self._trading_gui._src)
+
+        sma_list = [self._sma_list.item(i).text() for i in range(self._sma_list.count())]
+        sma_dict = {
+            "Close": [],
+            "Open":  [],
+            "Low":   [],
+            "High":  []
+        }
+
+        for i in sma_list:
+            candle_type, window = i.split("-")
+            window = int(window)
+            sma_dict[candle_type].append(window)
+
+        if not strategy.add_rsi(price=candle, window=window):
+            QMessageBox.warning(self._tab, "Warning", "Trading met with failure! there is no SMA Window.")
+            return
+
+        s = strategy.trade(price=candle,
+                           window=window,
+                           overbought_level=overbought,
+                           oversold_level=oversold,
+                           margin_portion=self._trading_gui._margin,
+                           initial_capital=self._trading_gui._initial_capital,
+                           tp=self._trading_gui._tp,
+                           sl=self._trading_gui._sl,
+                           commission_rate=self._trading_gui._commission_rate)
+        
+        if not s:
+            QMessageBox.warning(self._tab, "Warning", "Trading met with failure.")
+            return
+
+        QMessageBox.information(self._tab, "Warning", "Trading successfully finished.")
+        canvas = FigureCanvasQTAgg(strategy._report_graph())
+
+        self._report_graph.addWidget(canvas)
+
+        # Display the final results dashboard
+        results_panel = self._create_final_results_panel(strategy._statistics)
+        self._report_detail.addWidget(results_panel)
+
+    def __check_fields(self):
+
+        window_format = r"^\d+$"
+        sma = self._sma_edit.text().strip()
+        overbought = self._overbought_edit.text().strip()
+        oversold = self._oversold_edit.text().strip()
+
+        # sma window
+        if not sma:
+            QMessageBox.warning(self._tab, "Warning", "SMA Window can not be empty")
+            return False
+
+        if not re.search(window_format, sma):
+            QMessageBox.warning(self._tab, "Warning", "SMA Window must be a positive interger number")
+            return False
+
+        # overbought
+        if not overbought:
+            QMessageBox.warning(self._tab, "Warning", "Overbought Level can not be empty")
+            return False
+
+        if not re.search(window_format, overbought):
+            QMessageBox.warning(self._tab, "Warning", "Overbought Level must be a positive interger number")
+            return False
+        
+        # oversold
+        if not oversold:
+            QMessageBox.warning(self._tab, "Warning", "Oversold Level can not be empty")
+            return False
+
+        if not re.search(window_format, oversold):
+            QMessageBox.warning(self._tab, "Warning", "Oversold Level must be a positive interger number")
+            return False
+
+        if int(oversold) >= int(overbought):
+            QMessageBox.warning(self._tab, "Warning", "Overbought Level must be greater than Oversold Level")
+            return False
+        
+        return True
+
 
 class  TradingGUI(QWidget):
-
-    __CANDLE_TYPE = ["Open", "Close", "High", "Low"]
 
     def __init__(self):
         super().__init__()
@@ -34,9 +721,11 @@ class  TradingGUI(QWidget):
 
     def __tabs_init(self):
 
+        self._mavg_window = MovingAverageWindow(self)
+        self._rsi_window = RSIWindow(self)
+
         self.tab = QTabWidget(self)
         self.binance_tab = QWidget()
-        self.mavg_tab = QWidget()
         self.rsi_tab = QWidget()
         self.macd_tab = QWidget()
         self.bollinger_tab = QWidget()
@@ -46,29 +735,20 @@ class  TradingGUI(QWidget):
 
         self.tab.addTab(self.binance_tab, "Connect Binance")
         self.tab.addTab(self.settings_tab, "Settings")
-        self.tab.addTab(self.mavg_tab, "Moving Average")
-        self.tab.addTab(self.rsi_tab, "RSI")
+        self.tab.addTab(self._mavg_window._tab, "Moving Average")
+        self.tab.addTab(self._rsi_window._tab, "RSI")
         self.tab.addTab(self.macd_tab, "MACD")
         self.tab.addTab(self.bollinger_tab, "Bollinger Band")
         self.tab.addTab(self.donchian_tab, "Donchian Channel")
         self.tab.addTab(self.hybrid_tab, "Hybrid")
 
     def __tabs_setup(self):
+
         self.__binance_tab()
-        self.__mavg_tab()
-        self.__rsi_tab()
         self.__settings_tab()
 
     def ui(self):
         main_layout = QVBoxLayout()
-
-        ############ tab2 #########
-        hbox2 = QHBoxLayout()
-        # self.btn = QPushButton("Click Me")
-        # self.btn.clicked.connect(self.btn_clicked)
-        # hbox2.addWidget(self.btn)
-        # self.tab2.setLayout(hbox2)
-
         main_layout.addWidget(self.tab)
         self.setLayout(main_layout)
         self.show()
@@ -359,624 +1039,7 @@ class  TradingGUI(QWidget):
 
         QMessageBox.information(self, "Saved Settings", "Settings saved successfully.")
 
-    def __mavg_tab(self):
 
-        master_layout = QVBoxLayout()
-
-        upper_hbox = QHBoxLayout()
-        self._mavg_report_area = QHBoxLayout()
-
-        right_vbox = QVBoxLayout()
-        left_vbox  = QVBoxLayout()
-
-        ###################### Upper Hbox ######################
-
-        # Left Vbox
-        hbox  = QHBoxLayout()
-        lgroup = QGroupBox("Add SMA")
-        lform  = QFormLayout()
-        lform.setRowWrapPolicy(QFormLayout.WrapAllRows)
-
-        CANDLE_TYPES = ("Close", "Open", "High", "Low")
-        window_label    = QLabel("Window")
-        candle_label    = QLabel("Candle Type")
-
-        self._mavg_window_edit   = QLineEdit()
-        
-        self._mavg_add_candle_type   = QComboBox()
-        self._mavg_add_candle_type.addItems(CANDLE_TYPES)
-
-        lform.addRow(window_label, self._mavg_window_edit)
-        lform.addRow(candle_label, self._mavg_add_candle_type)
-
-        self._mavg_sma_list = QListWidget()
-        hbox.addWidget(self._mavg_sma_list)
-
-        self._mavg_add_button = QPushButton("Add SMA")
-        self._mavg_add_button.clicked.connect(self.__mavg_add_sma)
-        hbox.addWidget(self._mavg_add_button)
-
-        lform.addRow(hbox)
-        lgroup.setLayout(lform)
-        left_vbox.addWidget(lgroup)
-        upper_hbox.addLayout(left_vbox)
-
-        # Right Vbox
-        hbox2 = QHBoxLayout()
-        rgroup = QGroupBox("Strategy Setup")
-        rform  = QFormLayout()
-        rform.setRowWrapPolicy(QFormLayout.WrapAllRows)
-
-        shorter_window_label    = QLabel("Shorter SMA Window")
-        longer_window_label     = QLabel("Longer SMA Window")
-        trade_candle_label      = QLabel("Candle Type")
-
-        self._mavg_shorter_sma_edit = QLineEdit()
-        self._mavg_longer_sma_edit = QLineEdit()
-
-        self._mavg_shorter_sma_edit.setPlaceholderText("Enter Shorter SMA Window")
-        self._mavg_longer_sma_edit.setPlaceholderText("Enter Longer SMA Window")
-
-        self._mavg_trade_candle_type = QComboBox()
-        self._mavg_trade_candle_type.addItems(TradingGUI.__CANDLE_TYPE)
-        self._mavg_trade_candle_type.setCurrentText("Close")
-
-        rform.addRow(shorter_window_label, self._mavg_shorter_sma_edit)
-        rform.addRow(longer_window_label, self._mavg_longer_sma_edit)
-        rform.addRow(trade_candle_label, self._mavg_trade_candle_type)
-
-        hbox2.addStretch()
-        self._mavg_start_trade = QPushButton("Start Trading")
-        hbox2.addWidget(self._mavg_start_trade)
-        self._mavg_start_trade.clicked.connect(self.__mavg)
-        rform.addRow(hbox2)
-
-        rgroup.setLayout(rform)
-        right_vbox.addWidget(rgroup)
-        upper_hbox.addLayout(right_vbox)
-
-        master_layout.addLayout(upper_hbox, 1)
-
-        ###################### Lower Hbox ######################
-        self._mavg_report_graph = QVBoxLayout()
-        self._mavg_report_detail = QVBoxLayout()
-        self._mavg_report_area.addLayout(self._mavg_report_graph, 3)
-        self._mavg_report_area.addLayout(self._mavg_report_detail, 1)
-        master_layout.addLayout(self._mavg_report_area, 3)
-        self.mavg_tab.setLayout(master_layout)
-
-    def __mavg_add_sma(self):
-
-        window = self._mavg_window_edit.text().strip()
-
-        if not window:
-            QMessageBox.warning(self, "Warning", "SMA window cannot be empty.")
-            # clear previous reports
-            self.__clear_report(self._mavg_report_graph, self._mavg_report_detail)
-            return False
-
-        try:
-            window = int(window)
-            if window <= 0:
-                # clear previous reports
-                self.__clear_report(self._mavg_report_graph, self._mavg_report_detail)
-                raise ValueError
-            
-        except ValueError:
-            QMessageBox.warning(self, "Warning", "SMA window must be a positive integer.")
-            # clear previous reports
-            self.__clear_report(self._mavg_report_graph, self._mavg_report_detail)
-            return False
-
-        candle_type = self._mavg_add_candle_type.currentText()
-        item = f"{candle_type}-{window}"
-
-        for i in range(self._mavg_sma_list.count()):
-            if self._mavg_sma_list.item(i).text() == item:
-                # clear previous reports
-                self.__clear_report(self._mavg_report_graph, self._mavg_report_detail)
-                return False
-
-        self._mavg_sma_list.addItem(item)
-
-    def __mavg(self):
-
-        # clear previous reports
-        self.__clear_report(self._mavg_report_graph, self._mavg_report_detail)
-
-        if not self.__check_mavg_field():
-            return 
-        
-        if self._src is None:
-            QMessageBox.warning(self, "Warning", "Trading met with failure! There is no data so check the Binance.")
-            return
-
-        if self._initial_capital is None:
-            QMessageBox.warning(self, "Warning", "Trading met with failure! Check Settings.")
-            return
-
-        candle = self._mavg_trade_candle_type.currentText()
-        shorter_window = int(float(self._mavg_shorter_sma_edit.text().strip()))
-        longer_window = int(float(self._mavg_longer_sma_edit.text().strip()))
-        windows = (shorter_window, longer_window)
-
-        strategy = MovingAverage(self._src)
-
-        sma_list = [self._mavg_sma_list.item(i).text() for i in range(self._mavg_sma_list.count())]
-        sma_dict = {
-            "Close": [],
-            "Open": [],
-            "Low": [],
-            "High": []
-        }
-
-        for i in sma_list:
-            candle_type, window = i.split("-")
-            window = int(window)
-            sma_dict[candle_type].append(window)
-
-        if not strategy.add_sma(sma_dict):
-            QMessageBox.warning(self, "Warning", "Trading met with failure! there is no SMA Window.")
-            return
-
-        s = strategy.trade(price=candle,
-                                windows=windows,
-                                margin_portion=self._margin,
-                                initial_capital=self._initial_capital,
-                                tp=self._tp,
-                                sl=self._sl,
-                                commission_rate=self._commission_rate)
-        
-        if not s:
-            QMessageBox.warning(self, "Warning", "Trading met with failure.")
-            return
-
-        QMessageBox.information(self, "Warning", "Trading successfully finished.")
-        canvas = FigureCanvasQTAgg(strategy._report_graph())
-
-        self._mavg_report_graph.addWidget(canvas)
-
-        # Display the final results dashboard
-        results_panel = self.__create_final_results_panel(strategy._statistics)
-        self._mavg_report_detail.addWidget(results_panel)
-
-    def __check_mavg_field(self):
-
-        window_format = r"^\d+$"
-        shorter_sma = self._mavg_shorter_sma_edit.text().strip()
-        longer_sma = self._mavg_longer_sma_edit.text().strip()
-
-        # shorter sma window
-        if not shorter_sma:
-            QMessageBox.warning(self, "Warning", "Shorter SMA Window can not be empty")
-            return False
-
-        if not re.search(window_format, shorter_sma):
-            QMessageBox.warning(self, "Warning", "Shorter SMA Window must be a positive interger number")
-            return False
-
-        # longer sma window
-        if not longer_sma:
-            QMessageBox.warning(self, "Warning", "Longer SMA Window can not be empty")
-            return False
-
-        if not re.search(window_format, longer_sma):
-            QMessageBox.warning(self, "Warning", "Longer SMA Window must be a positive interger number")
-            return False
-
-        if int(shorter_sma) >= int(longer_sma):
-            QMessageBox.warning(self, "Warning", "Longer SMA Window must be greater than Shorter SMA Window")
-            return False
-
-        return True
-
-    def __rsi_tab(self):
-
-        master_layout = QVBoxLayout()
-
-        upper_hbox = QHBoxLayout()
-        self._rsi_report_area = QHBoxLayout()
-
-        right_vbox = QVBoxLayout()
-        left_vbox  = QVBoxLayout()
-
-        ###################### Upper Hbox ######################
-
-        # Left Vbox
-        hbox  = QHBoxLayout()
-        lgroup = QGroupBox("Add SMA")
-        lform  = QFormLayout()
-        lform.setRowWrapPolicy(QFormLayout.WrapAllRows)
-
-        CANDLE_TYPES = ("Close", "Open", "High", "Low")
-        window_label    = QLabel("Window")
-        candle_label    = QLabel("Candle Type")
-
-        self._rsi_window_edit   = QLineEdit()
-        
-        self._rsi_add_candle_type   = QComboBox()
-        self._rsi_add_candle_type.addItems(CANDLE_TYPES)
-
-        lform.addRow(window_label, self._rsi_window_edit)
-        lform.addRow(candle_label, self._rsi_add_candle_type)
-
-        self._rsi_sma_list = QListWidget()
-        hbox.addWidget(self._rsi_sma_list)
-
-        self._rsi_add_button = QPushButton("Add SMA")
-        self._rsi_add_button.clicked.connect(self.__rsi_add_sma)
-        hbox.addWidget(self._rsi_add_button)
-
-        lform.addRow(hbox)
-        lgroup.setLayout(lform)
-        left_vbox.addWidget(lgroup)
-        upper_hbox.addLayout(left_vbox)
-
-        # Right Vbox
-        hbox2 = QHBoxLayout()
-        rgroup = QGroupBox("Strategy Setup")
-        rform  = QFormLayout()
-        rform.setRowWrapPolicy(QFormLayout.WrapAllRows)
-        overbought_label     = QLabel("Overbought Level")
-        oversold_label       = QLabel("Oversold Level")
-        sma_window_label     = QLabel("SMA Window")
-        trade_candle_label   = QLabel("Candle Type")
-
-        self._rsi_overbought_edit    = QLineEdit("70")
-        self._rsi_oversold_edit      = QLineEdit("30")
-        self._rsi_sma_edit   = QLineEdit("14")
-
-        self._rsi_overbought_edit.setPlaceholderText("Enter Overbought Level")
-        self._rsi_oversold_edit.setPlaceholderText("Enter Oversold Level")
-        self._rsi_sma_edit.setPlaceholderText("Enter SMA Window")
-
-        self._rsi_trade_candle_type = QComboBox()
-        self._rsi_trade_candle_type.addItems(TradingGUI.__CANDLE_TYPE)
-        self._rsi_trade_candle_type.setCurrentText("Close")
-
-        rform.addRow(overbought_label, self._rsi_overbought_edit)
-        rform.addRow(oversold_label, self._rsi_oversold_edit)
-        rform.addRow(sma_window_label, self._rsi_sma_edit)
-        rform.addRow(trade_candle_label, self._rsi_trade_candle_type)
-
-        hbox2.addStretch()
-        self._rsi_start_trade = QPushButton("Start Trading")
-        hbox2.addWidget(self._rsi_start_trade)
-        self._rsi_start_trade.clicked.connect(self.__rsi)
-        rform.addRow(hbox2)
-
-        rgroup.setLayout(rform)
-        right_vbox.addWidget(rgroup)
-        upper_hbox.addLayout(right_vbox)
-
-        master_layout.addLayout(upper_hbox, 1)
-
-        ###################### Lower Hbox ######################
-        self._rsi_report_graph = QVBoxLayout()
-        self._rsi_report_detail = QVBoxLayout()
-        self._rsi_report_area.addLayout(self._rsi_report_graph, 3)
-        self._rsi_report_area.addLayout(self._rsi_report_detail, 1)
-        master_layout.addLayout(self._rsi_report_area, 3)
-        self.rsi_tab.setLayout(master_layout)
-
-    def __rsi_add_sma(self):
-
-        window = self._rsi_window_edit.text().strip()
-
-        if not window:
-            QMessageBox.warning(self, "Warning", "SMA window cannot be empty.")
-            # clear previous reports
-            self.__clear_report(self._rsi_report_graph, self._rsi_report_detail)
-            return False
-
-        try:
-            window = int(window)
-            if window <= 0:
-                # clear previous reports
-                self.__clear_report(self._rsi_report_graph, self._rsi_report_detail)
-                raise ValueError
-            
-        except ValueError:
-            QMessageBox.warning(self, "Warning", "SMA window must be a positive integer.")
-            # clear previous reports
-            self.__clear_report(self._rsi_report_graph, self._rsi_report_detail)
-            return False
-
-        candle_type = self._rsi_add_candle_type.currentText()
-        item = f"{candle_type}-{window}"
-
-        for i in range(self._rsi_sma_list.count()):
-            if self._rsi_sma_list.item(i).text() == item:
-                # clear previous reports
-                self.__clear_report(self._rsi_report_graph, self._rsi_report_detail)
-                return False
-
-        self._rsi_sma_list.addItem(item)
-
-    def __rsi(self):
-        # clear previous reports
-        self.__clear_report(self._rsi_report_graph, self._rsi_report_detail)
-
-        if not self.__check_rsi_field():
-            return 
-        
-        if self._src is None:
-            QMessageBox.warning(self, "Warning", "Trading met with failure! There is no data so check the Binance.")
-            return
-
-        if self._initial_capital is None:
-            QMessageBox.warning(self, "Warning", "Trading met with failure! Check Settings.")
-            return
-
-        overbought = float(self._rsi_overbought_edit.text())
-        oversold   = float(self._rsi_oversold_edit.text())
-        window     = int(self._rsi_sma_edit.text())
-        candle     = self._rsi_trade_candle_type.currentText()
-
-        strategy = RSI(self._src)
-
-        sma_list = [self._rsi_sma_list.item(i).text() for i in range(self._rsi_sma_list.count())]
-        sma_dict = {
-            "Close": [],
-            "Open": [],
-            "Low": [],
-            "High": []
-        }
-
-        for i in sma_list:
-            candle_type, window = i.split("-")
-            window = int(window)
-            sma_dict[candle_type].append(window)
-
-        if not strategy.add_rsi(price=candle, window=window):
-            QMessageBox.warning(self, "Warning", "Trading met with failure! there is no SMA Window.")
-            return
-
-        s = strategy.trade(price=candle,
-                           window=window,
-                           overbought_level=overbought,
-                           oversold_level=oversold,
-                           margin_portion=self._margin,
-                           initial_capital=self._initial_capital,
-                           tp=self._tp,
-                           sl=self._sl,
-                           commission_rate=self._commission_rate)
-        
-        if not s:
-            QMessageBox.warning(self, "Warning", "Trading met with failure.")
-            return
-
-        QMessageBox.information(self, "Warning", "Trading successfully finished.")
-        canvas = FigureCanvasQTAgg(strategy._report_graph())
-
-        self._rsi_report_graph.addWidget(canvas)
-
-        # Display the final results dashboard
-        results_panel = self.__create_final_results_panel(strategy._statistics)
-        self._rsi_report_detail.addWidget(results_panel)
-
-    def __check_rsi_field(self):
-
-        window_format = r"^\d+$"
-        sma = self._rsi_sma_edit.text().strip()
-        overbought = self._rsi_overbought_edit.text().strip()
-        oversold = self._rsi_oversold_edit.text().strip()
-
-        # sma window
-        if not sma:
-            QMessageBox.warning(self, "Warning", "SMA Window can not be empty")
-            return False
-
-        if not re.search(window_format, sma):
-            QMessageBox.warning(self, "Warning", "SMA Window must be a positive interger number")
-            return False
-
-        # overbought
-        if not overbought:
-            QMessageBox.warning(self, "Warning", "Overbought Level can not be empty")
-            return False
-
-        if not re.search(window_format, overbought):
-            QMessageBox.warning(self, "Warning", "Overbought Level must be a positive interger number")
-            return False
-        
-        # oversold
-        if not oversold:
-            QMessageBox.warning(self, "Warning", "Oversold Level can not be empty")
-            return False
-
-        if not re.search(window_format, oversold):
-            QMessageBox.warning(self, "Warning", "Oversold Level must be a positive interger number")
-            return False
-
-        if int(oversold) >= int(overbought):
-            QMessageBox.warning(self, "Warning", "Overbought Level must be greater than Oversold Level")
-            return False
-        
-        return True
-
-    def __clear_report(self, graph, detail):
-        # Clear previous graph widgets
-        while graph.count():
-            item = graph.takeAt(0)
-            widget = item.widget()
-
-            if widget is not None:
-                widget.deleteLater()
-
-        # Clear previous report-detail widgets
-        while detail.count():
-            item = detail.takeAt(0)
-            widget = item.widget()
-
-            if widget is not None:
-                widget.deleteLater()
-  
-    def __create_metric_card(self, title, value, accent="#3478E5",
-                            subtitle=None, prominent=False):
-        """Create a styled card for one backtest metric."""
-
-        card = QFrame()
-        card.setObjectName("metricCard")
-        card.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
-
-        layout = QVBoxLayout(card)
-        layout.setContentsMargins(12, 12, 12, 12)
-        layout.setSpacing(5)
-
-        title_label = QLabel(title)
-        title_label.setStyleSheet("""
-            color: #64748B;
-            font-size: 11px;
-            font-weight: 600;
-            border: none;
-            background: transparent;
-        """)
-
-        value_label = QLabel(str(value))
-        value_label.setWordWrap(True)
-        value_label.setStyleSheet(f"""
-            color: {accent};
-            font-size: {"20px" if prominent else "15px"};
-            font-weight: bold;
-            border: none;
-            background: transparent;
-        """)
-
-        layout.addWidget(title_label)
-        layout.addWidget(value_label)
-
-        if subtitle is not None:
-            subtitle_label = QLabel(subtitle)
-            subtitle_label.setWordWrap(True)
-            subtitle_label.setStyleSheet("""
-                color: #64748B;
-                font-size: 10px;
-                border: none;
-                background: transparent;
-            """)
-            layout.addWidget(subtitle_label)
-
-        card.setStyleSheet("""
-            QFrame#metricCard {
-                background-color: #FFFFFF;
-                border: 1px solid #E2E8F0;
-                border-radius: 10px;
-            }
-        """)
-
-        return card
-
-    def __create_final_results_panel(self, statistics):
-        """Build the final backtest results dashboard."""
-
-        panel = QFrame()
-        panel.setObjectName("resultsPanel")
-
-        panel.setStyleSheet("""
-            QFrame#resultsPanel {
-                background-color: #F4F7FB;
-                border: 1px solid #DCE5F0;
-                border-radius: 12px;
-            }
-        """)
-
-        main_layout = QVBoxLayout(panel)
-        main_layout.setContentsMargins(10, 10, 10, 10)
-        main_layout.setSpacing(10)
-
-        # ---------- Header ----------
-        header = QFrame()
-        header.setObjectName("resultsHeader")
-        header.setStyleSheet("""
-            QFrame#resultsHeader {
-                background-color: #203E68;
-                border-radius: 8px;
-            }
-        """)
-
-        header_layout = QHBoxLayout(header)
-        header_layout.setContentsMargins(12, 12, 12, 12)
-
-        title = QLabel("🏆  Final Results")
-        title.setStyleSheet("""
-            color: white;
-            font-size: 16px;
-            font-weight: bold;
-            border: none;
-            background: transparent;
-        """)
-
-        header_layout.addWidget(title)
-        main_layout.addWidget(header)
-
-        # ---------- Calculate displayed values ----------
-        initial = statistics["initial-capital"]
-        final = statistics["capital"]
-        profit = final - initial
-        total_return = statistics["total-return"]
-        total_trades = statistics["total-trade"]
-        winning = statistics["winning-trade"]
-        losing = statistics["losing-trade"]
-        win_rate = statistics["win-rate"]
-
-        profit_color = "#16834A" if profit >= 0 else "#D12F45"
-        profit_sign = "+" if profit > 0 else ""
-
-        # ---------- Main metric cards ----------
-        grid = QGridLayout()
-        grid.setSpacing(8)
-
-        cards = [
-            self.__create_metric_card(
-                "FINAL CAPITAL",
-                f"${final:,.2f}",
-                accent="#203E68",
-                subtitle=f"{total_return:+.2f}%",
-                prominent=True
-            ),
-            self.__create_metric_card(
-                "PROFIT / LOSS",
-                f"{profit_sign}${abs(profit):,.2f}"
-                if profit >= 0 else f"-${abs(profit):,.2f}",
-                accent=profit_color,
-                subtitle="Net result",
-                prominent=True
-            ),
-            self.__create_metric_card(
-                "INITIAL CAPITAL",
-                f"${initial:,.2f}",
-                accent="#168D8D"
-            ),
-            self.__create_metric_card(
-                "TOTAL TRADES",
-                str(total_trades),
-                accent="#3478E5",
-                subtitle=f"{winning} wins · {losing} losses"
-            ),
-            self.__create_metric_card(
-                "TOTAL RETURN",
-                f"{total_return:.2f}%",
-                accent="#168D8D"
-            ),
-            self.__create_metric_card(
-                "WIN RATE",
-                f"{win_rate:.2f}%",
-                accent="#3478E5"
-            ),
-        ]
-
-        for index, card in enumerate(cards):
-            row = index // 2
-            column = index % 2
-            grid.addWidget(card, row, column)
-
-        main_layout.addLayout(grid)
-        main_layout.addStretch()
-
-        return panel
-
-  
 def main():
     app = QApplication(sys.argv)
     window = TradingGUI()
