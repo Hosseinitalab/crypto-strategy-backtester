@@ -700,6 +700,169 @@ class RSIWindow(StrategyWindow):
         return True
 
 
+class MACDWindow(StrategyWindow):
+
+    def __init__(self, trading_gui):
+
+        super().__init__()
+        self._trading_gui = trading_gui
+        self.__init_widgets()
+        self.__setup()
+
+    def __init_widgets(self):
+
+        # Edit Widgets
+        self._slow_ema_edit = None
+        self._fast_ema_edit = None
+        self._signal_ema_edit = None
+
+        # ComboBox Widget
+        self._trade_candle_combo = None
+
+        # Button Widget
+        self._trade_button = None
+
+    def __setup(self):
+
+        master_layout     = QVBoxLayout()
+        hbox              = QHBoxLayout()
+        self._report_area = QHBoxLayout()
+
+        ###################### Upper Hbox ######################
+
+        hbox2  = QHBoxLayout()
+        group = QGroupBox("Strategy Setup")
+        form  = QFormLayout()
+        form.setRowWrapPolicy(QFormLayout.WrapAllRows)
+        slow_ema_label      = QLabel("Slow EMA Window")
+        fast_ema_label      = QLabel("Fast EMA Window")
+        signal_ema_label    = QLabel("Signal EMA Window")
+        trade_candle_label  = QLabel("Candle Type")
+
+        self._slow_ema_edit    = QLineEdit("26")
+        self._fast_ema_edit    = QLineEdit("12")
+        self._signal_ema_edit  = QLineEdit("9")
+
+        self._slow_ema_edit.setPlaceholderText("Enter Slow EMA Window")
+        self._fast_ema_edit.setPlaceholderText("Enter Fast EMA Window")
+        self._signal_ema_edit.setPlaceholderText("Enter Signal EMA Window")
+
+        self._trade_candle_combo = QComboBox()
+        self._trade_candle_combo.addItems(self._CANDLE_TYPE)
+        self._trade_candle_combo.setCurrentText("Close")
+
+        form.addRow(slow_ema_label, self._slow_ema_edit)
+        form.addRow(fast_ema_label, self._fast_ema_edit)
+        form.addRow(signal_ema_label, self._signal_ema_edit)
+        form.addRow(trade_candle_label, self._trade_candle_combo)
+
+        hbox2.addStretch()
+        self._trade_button = QPushButton("Start Trading")
+        hbox2.addWidget(self._trade_button)
+        self._trade_button.clicked.connect(self.__trade)
+        form.addRow(hbox2)
+
+        group.setLayout(form)
+        hbox.addWidget(group)
+
+        master_layout.addLayout(hbox)
+
+        ###################### Lower Hbox ######################
+        self._report_graph = QVBoxLayout()
+        self._report_detail = QVBoxLayout()
+        self._report_area.addLayout(self._report_graph, 3)
+        self._report_area.addLayout(self._report_detail, 1)
+        master_layout.addLayout(self._report_area, 3)
+        self._tab.setLayout(master_layout)
+
+    def __trade(self):  
+
+        # clear previous reports
+        self._clear_report()
+
+        if not self.__check_fields():
+            return 
+        
+        if self._trading_gui._src is None:
+            QMessageBox.warning(self._tab, "Warning", "Trading met with failure! There is no data so check the Binance.")
+            return
+
+        if self._trading_gui._initial_capital is None:
+            QMessageBox.warning(self._tab, "Warning", "Trading met with failure! Check Settings.")
+            return
+
+        slow_ema     = int(self._slow_ema_edit.text())
+        fast_ema     = int(self._fast_ema_edit.text())
+        signal_ema   = int(self._signal_ema_edit.text())
+
+        candle = self._trade_candle_combo.currentText()
+
+        strategy = MACD(self._trading_gui._src)
+
+        s = strategy.trade(price=candle,
+                           slow_ema=slow_ema,
+                           fast_ema=fast_ema,
+                           signal_ema=signal_ema,
+                           margin_portion=self._trading_gui._margin,
+                           initial_capital=self._trading_gui._initial_capital,
+                           tp=self._trading_gui._tp,
+                           sl=self._trading_gui._sl,
+                           commission_rate=self._trading_gui._commission_rate)
+
+        if not s:
+            QMessageBox.warning(self._tab, "Warning", "Trading met with failure.")
+            return
+
+        QMessageBox.information(self._tab, "Warning", "Trading successfully finished.")
+        canvas = FigureCanvasQTAgg(strategy._report_graph())
+
+        self._report_graph.addWidget(canvas)
+
+        # Display the final results dashboard
+        results_panel = self._create_final_results_panel(strategy._statistics)
+        self._report_detail.addWidget(results_panel)
+
+    def __check_fields(self):
+
+        window_format = r"^\d+$"
+        slow_ema = self._slow_ema_edit.text().strip()
+        fast_ema = self._fast_ema_edit.text().strip()
+        signal_ema = self._signal_ema_edit.text().strip()
+
+        # Slow EMA window
+        if not slow_ema:
+            QMessageBox.warning(self._tab, "Warning", "Slow EMA Window can not be empty")
+            return False
+
+        if not re.search(window_format, slow_ema):
+            QMessageBox.warning(self._tab, "Warning", "Slow EMA Window must be a positive interger number")
+            return False
+
+        # Fast EMA window
+        if not fast_ema:
+            QMessageBox.warning(self._tab, "Warning", "Fast EMA Window can not be empty")
+            return False
+
+        if not re.search(window_format, fast_ema):
+            QMessageBox.warning(self._tab, "Warning", "Fast EMA Window must be a positive interger number")
+            return False
+
+        # Signal EMA window
+        if not signal_ema:
+            QMessageBox.warning(self._tab, "Warning", "Signal EMA Window can not be empty")
+            return False
+
+        if not re.search(window_format, signal_ema):
+            QMessageBox.warning(self._tab, "Warning", "Signal EMA Window must be a positive interger number")
+            return False
+        
+        if int(slow_ema) <= int(fast_ema):
+            QMessageBox.warning(self._tab, "Warning", "Slow EMA Window must be greater than Fast EMA Window")
+            return False
+        
+        return True
+
+
 class  TradingGUI(QWidget):
 
     def __init__(self):
@@ -723,6 +886,7 @@ class  TradingGUI(QWidget):
 
         self._mavg_window = MovingAverageWindow(self)
         self._rsi_window = RSIWindow(self)
+        self._macd_window = MACDWindow(self)
 
         self.tab = QTabWidget(self)
         self.binance_tab = QWidget()
@@ -737,7 +901,7 @@ class  TradingGUI(QWidget):
         self.tab.addTab(self.settings_tab, "Settings")
         self.tab.addTab(self._mavg_window._tab, "Moving Average")
         self.tab.addTab(self._rsi_window._tab, "RSI")
-        self.tab.addTab(self.macd_tab, "MACD")
+        self.tab.addTab(self._macd_window._tab, "MACD")
         self.tab.addTab(self.bollinger_tab, "Bollinger Band")
         self.tab.addTab(self.donchian_tab, "Donchian Channel")
         self.tab.addTab(self.hybrid_tab, "Hybrid")
