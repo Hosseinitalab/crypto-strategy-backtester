@@ -1135,9 +1135,9 @@ class MACD(Strategy):
         return True
 
 
-class RsiMacdEma(Strategy):
+class Hybrid(Strategy):
 
-    _STRATEGY_NAME = "Hybrid (RSI_MACD_EMA)"
+    _STRATEGY_NAME = "Hybrid(RSI_MACD_EMA)"
 
     def __init__(self, info:ConnectBinance):
         super().__init__(info)
