@@ -1,26 +1,43 @@
-An Advanced Binance Strategy Simulator.
+# Cryptocurrency Strategy Backtester
 
-This programme is using the Binance API to get the data in order to run the strategies:
+A desktop application for downloading historical cryptocurrency market data from Binance and backtesting technical-analysis strategies. It displays the resulting account statistics and an equity curve; it does not place live trades through the GUI.
 
-* Moving Average
-* RSI
-* MACD
-* Donchian Channel
-* Bollinger Bands
-* Hybrid (Combination of RSI, MACD and Moving Average)
+## Strategies
 
-----------------------------------------------------------------------
-For Stimulating an specific strategy you need to follow the steps:
+- Moving Average
+- RSI
+- MACD
+- Bollinger Bands
+- Donchian Channel
+- Hybrid (MACD, RSI, and moving-average filters)
 
-1- Download the historical data from Binance (if you haven't downloaded it yet)
-2- Choose one strategy
-3- Enter the required parameters for the selected strategy
-4- Run the Strategy
+## Requirements
 
-----------------------------------------------------------------------
-In the end, you will be supplied with the followings:
+- Python 3
+- An internet connection to download historical Binance market data
 
-* The Estimated Profit
-* The number of completed trades
-* The ratio of successful Trades
-* The final budget after the trading has been finished
+The GUI and strategy modules use PyQt5, pandas, matplotlib, and python-binance. Install them with:
+
+```bash
+python -m pip install PyQt5 pandas matplotlib python-binance
+```
+
+## Run
+
+From the project directory:
+
+```bash
+python gui.py
+```
+
+## Using the application
+
+1. In **Connect Binance**, enter a market symbol such as `BTCUSDT`, a start and end date in `YYYY-MM-DD` format, and a timeframe. Select **Connect** to load historical candles.
+2. Data is saved as a local `.pkl` file for the selected symbol, date range, and timeframe. Reconnecting with the same values loads that cached file; otherwise the application downloads the data from Binance.
+3. In **Settings**, set the initial capital, margin portion, take-profit level, stop-loss level, and commission rate.
+4. Open a strategy tab, set its parameters, and select **Start Trading**. The Hybrid strategy combines MACD crossover signals with RSI and moving-average filters.
+5. Review the report and equity curve shown in the strategy tab.
+
+## Backtest results
+
+The report includes final capital, profit or loss, total return, trade counts, and win rate. Results are calculated from historical candle data using the configured settings and commission rate. They are estimates, not a guarantee of future performance; the GUI is a backtesting tool, not a live-trading interface.
